@@ -22,6 +22,7 @@ def stable_cross_entropy(x, y):
     return - xlogy(x, y).sum()
 
 def log_stable(x):
+    # 対数を計算する際に、最小値をクリップして安定性を確保"""
     return jnp.log(jnp.clip(x, min=MINVAL))
 
 
@@ -81,30 +82,70 @@ def factor_dot_flex(M, xs, dims: List[Tuple[int]], keep_dims: Optional[Tuple[int
 
     Parameters
     ----------
-    - `M` [numpy.ndarray] - tensor
-    - 'xs' [list of numpyr.ndarray] - list of tensors
-    - 'dims' [list of tuples] - list of dimensions of xs tensors in tensor M
-    - 'keep_dims' [tuple] - tuple of integers denoting dimesions to keep
+    - `M` [numpy.ndarray] - tensor   b: p(s_{t+1}|s_t) --- 遷移行列 b
+    - 'xs' [list of numpy.ndarray] - list of tensors xs: q(s_t) --- 各時刻の隠れ状態の分布 xs
+    - 'dims' [list of tuples] - list of dimensions of xs tensors in tensor M --- 各因子ベクトルがMのどの軸に対応するかを示す dims
+    - 'keep_dims' [tuple] - tuple of integers denoting dimensions to keep --- 出力で残す軸 keep_dims
     Returns
     -------
     - `Y` [1D numpy.ndarray] - the result of the dot product
     """
-    all_dims = tuple(range(M.ndim))
-    matrix = [[xs[f], dims[f]] for f in range(len(xs))]
+    # B_marg.append( factor_dot_flex(b, xs, tuple(dims), keep_dims=keep_dims) )
+    # b: 遷移行列のスタック
+    # xs: f以外の親因子のqs
+    # dims: f以外の親因子の軸（bにおける場所）を指定
+    # keep_dims: 時間軸、子因子、親因子fの次元を残す
+
+    all_dims = tuple(range(M.ndim)) # bの全ての軸を取得
+    matrix = [[xs[f], dims[f]] for f in range(len(xs))] # 各親因子のqsと対応軸のペアを作成
     args = [M, all_dims]
-    for row in matrix:
+    for row in matrix: #各親因子のqsと対応軸のペアを追加
         args.extend(row)
 
-    args += [keep_dims]
+    args += [keep_dims] #最後に「出力で残す軸」を指定
+    # 最終的に
+    # args (b, bの全ての軸 (0,1,2,...),  親因子のqs qs1, 親因子が対応するbの軸 (3,), qs2, (4,), ..., 残す軸 (0,1,3))
+
     return contract(*args, backend="jax")
+    # p(s_{t+1} \mid s_t^{(f)})= \sum_{s_t^{(i)}} p(s_{t+1} | s_t^{(f)}, s_t^{(i)}) q(s_t^{(i)})
+    #   Y[t, s_{i,t+1}, s_{f,t}]
+    #   = \sum_{d \in \text{parents} \setminus f}
+    #   p(s_{i,t+1} | s_{f,t}, s_{d,t})
+    #   \prod_{d \neq f} q_d(s_{d,t})
+    #   = p(s_{i,t+1} | s_{f,t})
+
+    # args = (b, (0,1,2,3),  q1, (2,),  q2, (3,), (0,1,3))
+    # B の軸は (0,1,2,3) = (T, s_{t+1}, s_t^{(1)}, s_t^{(2)})
+    # - q1 は軸 (2,) に対応（= 現在の因子1 の分布 q(s_t^{(1)})）
+    # - q2 は軸 (3,) に対応（= 現在の因子2 の分布 q(s_t^{(2)})）
+    # - 出力は (0,1,3) を 残す（= 時刻 T・次状態 s_{t+1}・現在の因子2 の状態 s_t^{(2)} は保持）
+    #
+    # Y = contract(
+    #     b,  (0,1,2,3),
+    #     q1, (2,),     
+    #     (0,1,3)       
+    # )
+    #
+    # B の形状は (T, Snext, S1, S2) で、各軸は次のように対応しています：
+    # B_{t,s_{t+1},s_t^{(i)},s_t^{(j)}} = p(s_{t+1} | s_t^{(1)}, s_t^{(2)})
+    #   軸番号
+    #   t:0
+    #   s_{t+1}:1
+    #   s_t^{(1)}:2
+    #   s_t^{(2)}:3
+    # \sum_{s^{(1)}_t} p(s_{t+1} | s_t^{(1)}, s_t^{(2)}) q(s^{(1)}_t) = p(s_{t+1} | s_t^{(2)})
 
 
 def get_likelihood_single_modality(o_m, A_m, distr_obs=True):
     """Return observation likelihood for a single observation modality m"""
     if distr_obs:
+        # 確率分布が与えられた場合、観測o_mに対する尤度を計算。期待尤度
+        # p(o_m|s) = Σ_o p(o_m) × p(o_m|s)
         expanded_obs = jnp.expand_dims(o_m, tuple(range(1, A_m.ndim)))
         likelihood = (expanded_obs * A_m).sum(axis=0)
     else:
+        # 離散観測の場合
+        # p(o_m|s) = A_m[o_m]
         likelihood = A_m[o_m]
 
     return likelihood
@@ -124,9 +165,14 @@ def compute_log_likelihood(obs, A, distr_obs=True):
 
 def compute_log_likelihood_per_modality(obs, A, distr_obs=True):
     """Compute likelihood over hidden states across observations from different modalities, and return them per modality"""
-    ll_all = tree_util.tree_map(lambda o, a: compute_log_likelihood_single_modality(o, a, distr_obs=distr_obs), obs, A)
+    """異なるモダリティからの観測ごとに、隠れ状態に対する対数尤度を計算し、各モダリティごとに返す。"""
+    
+    ll_all = tree_util.tree_map(lambda o, a: compute_log_likelihood_single_modality(o, a, distr_obs=distr_obs),
+                                obs, # 各モダリティごとの観測（例: [obs1, obs2, ...]）
+                                A) # 各モダリティごとの観測モデルA（例: [A1, A2, ...]）
 
-    return ll_all
+
+    return ll_all #それぞれの $ll_m$ が**「隠れ状態 s の数だけの配列（またはテンソル）」
 
 
 def compute_accuracy(qs, obs, A):

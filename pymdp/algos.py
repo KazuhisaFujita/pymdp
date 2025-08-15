@@ -359,6 +359,7 @@ def get_mmp_messages(ln_B,
         # msg[t, s_{t+1}] = 
         # \sum_{依存する各因子のs_t} b[t, s_{t+1}, s_t^{(1)}, s_t^{(2)},\ldots];
         # \prod_k q^{(k)}[t,\, s_t^{(k)}]
+        # 周辺化
         # append log_prior as a first message 
 
         msg = jnp.concatenate([jnp.expand_dims(ln_prior, 0), msg], axis=0)
@@ -400,37 +401,52 @@ def get_mmp_messages(ln_B,
         return jnp.pad(msg, ((0, 1), (0, 0)))
 
     def marg(inv_deps, f):
-        # inv_deps: 逆依存関係リスト。時刻tの因子（親ファクター）に依存されている時刻t+1の因子(小ファクター)のインデックス。
-        # f: 因子インデックス（整数）
+        # inv_deps: 逆依存関係リスト。時刻tの因子（親ファクター）に依存されている時刻t+1の因子(小ファクター)のリスト。
+        # f: 親因子インデックス（整数）
         B_marg = []
         for i in inv_deps:
+            # i: 依存する因子（子ファクター）t+1のインデックス
             b = B[i] # 因子iに関する時間順にスタックされた遷移行列
-            keep_dims = (0, 1, 2 + B_deps[i].index(f)) # B_deps[i].index(f) B_deps[i]の中にあるfの位置（インデックス）
+            keep_dims = (0, 1, 2 + B_deps[i].index(f))
+            # B_deps[i].index(f) B_deps[i]の中にある親ファクターfの位置（インデックス）
             # どの次元を残すかを指定
             # bは時間順にならんだ遷移行列のスタックになっている。
             # b[i] の軸の並びをイメージ：
             # 0: T 時間
             # 1: s_{t+1}^{(f)}
             # 2: s_{t}^{(i)}
-            # 3: s_{t}^{(i)}
+            # 3: s_{t}^{(i+3)}
             # 2 + B_deps[i].index(f): 依存されている各因子の「現在状態」軸（B_deps[i].index(f) は因子fのB_deps[i] 内の位置）
-            # 因子1が1と2に依存する場合、B_deps[1]は[1, 2]となる。
+            # 子因子1が1と3に親因子に依存する場合、B_deps[1]は[1, 3]となる。
+            # 3の子因子を残すなら、2+3で5が残る。つまり、keep_dims=(0,1,5)になる。
 
             dims = []
             idxs = []
             for j, d in enumerate(B_deps[i]):
-                # iが依存する因子のリストをfor文で回す
+                # iが依存する親因子のリストをfor文で回す
                 # j: リスト内のインデックス
-                # d: 時刻tの因子（いわゆる親ノード）
+                # d: 時刻tの親因子（いわゆる親ファクター）
                 if f != d:
-                    dims.append((0, 2 + j)) #時間軸、因子軸
-                    idxs.append(d)          #依存する因子
+                    dims.append((0, 2 + j)) # 時間軸、親因子軸
+                    idxs.append(d)          # 依存されている親因子（親ファクター）
             xs = get_deps_forw(qs, idxs)
             # qs: q(s_t^1), q(s_t^2),...
-            # idxs: 時刻tの依存する因子のインデックス
-            # xs: 依存する因子の信念分布
+            # idxs: 時刻tの親因子のインデックス
+            # xs: 依存される親因子の信念分布ではあるが、最後の時間がない。
+            # qs = [
+            #     jnp.zeros((5, 3)),  # 因子0: shape (T=5, S0=3)
+            #     jnp.zeros((5, 2))   # 因子1: shape (T=5, S1=2)
+            # ]
+            # idxs=[2]なら
+            # xs = p[jnp.zeros((4, 2))]
+
             B_marg.append( factor_dot_flex(b, xs, tuple(dims), keep_dims=keep_dims) )
-        
+            # b: 遷移行列のスタック
+            # xs: 親因子のqs
+            # dims: 親因子の軸（bにおける場所）を指定
+            # keep_dims: 時間軸、親因子、子因子fの次元を残す
+            # B_margは、周辺化した遷移行列のリストp(s_{i,t+1} | s_{f,t})
+
         return B_marg
 
     if B is not None:
@@ -467,6 +483,7 @@ def get_mmp_messages(ln_B,
         # for f in factors:
         #     result = marg(inv_B_deps[f], f)
         #     B_marg.append(result)
+        # p(s_{i,t+1} | s_{f,t})
 
         lnB_future = jtu.tree_map(forward, B, ln_prior, factors) #forward messages
         lnB_past = jtu.tree_map(lambda f: backward(B_marg[f], get_deps_back(qs, inv_B_deps[f])), factors) #backward messages

@@ -34,6 +34,8 @@ class Agent(Module):
     This represents one timestep of an active inference process. Wrapping this step in a loop with an ``Env()`` class that returns
     observations and takes actions as inputs, would entail a dynamic agent-environment interaction.
     """
+    # 行動行列はフラット化され、1つのベクトルになる。
+
 
     A: List[Array]
     B: List[Array]
@@ -110,8 +112,13 @@ class Agent(Module):
         H=None,
         I=None,
         A_dependencies=None,
-        B_dependencies=None,
-        B_action_dependencies=None,
+        B_dependencies=None,        # 因子の依存関係リスト
+        B_action_dependencies=None, # 因子と行動の依存関係リスト
+        # B_action_dependencies = [
+        #   [0],      # 状態ファクター0は、制御ファクター0に依存
+        #   [1, 2],   # 状態ファクター1は、制御ファクター1と2に依存
+        #   []        # 状態ファクター2は、どの制御ファクターにも依存しない（制御不能）
+        # ]
         num_controls=None,
         control_fac_idx=None,
         policy_len=1,
@@ -379,6 +386,10 @@ class Agent(Module):
             ``qs[p_idx][t_idx][f_idx]`` refers to beliefs about marginal factor ``f_idx`` expected under policy ``p_idx``
             at timepoint ``t_idx``.
         """
+        # qs: dtypeオブジェクトの「numpy.ndarray」
+        # 隠れ状態に関する事後確信。選択された推論アルゴリズムに応じて、結果の「qs」変数には、確信が時点とポリシーによってさらに条件付けられているかどうかを反映する追加のサブ構造が含まれます。
+        # 例えば、「self.inference_algo == 'MMP'」の場合、インデックス構造はポリシー->時点-->因子となり、
+        # 「qs[p_idx][t_idx][f_idx]」は、時点「t_idx」においてポリシー「p_idx」の下で期待される周辺因子「f_idx」に関する信念を指します。
 
         # TODO: infer this from shapes
         if not self.onehot_obs:
@@ -572,10 +583,23 @@ class Agent(Module):
         if B_action_dependencies is not None:
             B_action_dependencies = B_action_dependencies
         else:
+            # B_action_dependenciesが指定されていない場合、各因子は単一の制御因子に依存すると仮定
+            # 因子数＝行動モダリティ数 を仮定
+            # 例えば、B_action_dependencies = [[0], [1], [2], ...
+            # なぜこんな仮定をするのか？
+            # 因子と行動モダリティの依存性は本来わからないものなので、おかしい。
+            # 因子数と行動モダリティ数は、通常は一致しない。
+            # pymdpの設計思想により行動行列をフラット化し1つのベクトルで表現するために、行動モダリティ数を因子数に一致する。
+
             B_action_dependencies = [[f] for f in range(self.num_factors)]
         return A_dependencies, B_dependencies, B_action_dependencies
 
     def _flatten_B_action_dims(self, B, pB, B_action_dependencies):
+        """
+        行動モダリティ数と因子数が異なるので、行動行列をフラット化し、行動モダリティ数=因子数にする。
+        よって各状態ファクターB[f]が持つ行動の次元を常に1つに標準化する
+        複数の行動モダリティを一つのベクトルで表現する。
+        """
         assert hasattr(B[0], "shape"), "Elements of B must be tensors and have attribute shape"
         action_maps = []  # mapping from multi action dependencies to flat action dependencies for each B
         B_flat = []
@@ -590,7 +614,10 @@ class Agent(Module):
                 )
                 continue
 
+
             dims = [self.num_controls_multi[d] for d in action_dependency]
+            # 組み合わせる行動次元のそれぞれのサイズを取得
+            
             target_shape = list(B_f.shape)[: -len(action_dependency)] + [pymath.prod(dims)]
             B_flat.append(B_f.reshape(target_shape))
             if pB is not None:

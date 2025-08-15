@@ -216,7 +216,9 @@ def compute_info_gain(qs, qo, A, A_dependencies):
     return jtu.tree_reduce(lambda x,y: x+y, info_gains_per_modality)
 
 def compute_expected_utility(qo, C, t=0):
-    
+    #なぜlog Cではないのか？
+    #Cは報酬に係ると考えられ、最終的には大小関係しか考慮されない。だから、logをとっても取らなくても大小関係が変わらないので、報酬の期待値を最大化するためには、Cの値そのものを直接使用する方が計算効率が良くなる。
+
     util = 0.
     for o_m, C_m in zip(qo, C):
         if C_m.ndim > 1:
@@ -246,6 +248,9 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
     infogain_pA: float
         Surprise (about Dirichlet parameters) expected for the pair of posterior predictive distributions ``qo`` and ``qs``
     """
+
+
+
 
     def infogain_per_modality(pa_m, qo_m, m):
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)

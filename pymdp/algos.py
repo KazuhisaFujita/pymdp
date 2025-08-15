@@ -103,11 +103,22 @@ def mirror_gradient_descent_step(tau, ln_A, lnB_past, lnB_future, ln_qs):
 
     return qs
 
-def update_marginals(get_messages, obs, A, B, prior, A_dependencies, B_dependencies, num_iter=1, tau=1.,):
+def update_marginals(get_messages, # メッセージ取得関数
+                     obs,   # 観測値列
+                     A,     # 観測モデル p(s|o)
+                     B,     # 遷移モデル p(s_{t+1}|s_t, a_t)
+                     prior, # 事前分布 p(s_0) D行列
+                     A_dependencies, # 観測モデルの依存関係
+                     B_dependencies, # 遷移モデルの依存関係
+                     num_iter=1,     # イテレーション回数
+                     tau=1.,):       # ステップサイズ、学習の進む速さ
     """" Version of marginal update that uses a sparse dependency matrix for A """
 
-    T = obs[0].shape[0]
-    ln_B = jtu.tree_map(log_stable, B)
+    T = obs[0].shape[0] # 観測系列の長さ（時系列長T）
+    ln_B = jtu.tree_map(log_stable, B) 
+    # 遷移行列Bを対数空間へ、単なるlogの変換ではなく、安定性のためにクリップを使用
+    # ネストした構造（リスト、辞書、配列など）に対して指定した関数を再帰的に適用
+    # 例えば、Bが複数の因子を持つ場合、各因子の遷移行列を対数空間に変換する
     # log likelihoods -> $\ln(A)$ for all time steps
     # for $k > t$ we have $\ln(A) = 0$
 
@@ -119,13 +130,39 @@ def update_marginals(get_messages, obs, A, B, prior, A_dependencies, B_dependenc
     # mapping over time dimension of obs array
     log_likelihoods = vmap(get_log_likelihood, (0, None))(obs, A) # this gives a sequence of log-likelihoods (one for each `t`)
 
-    # log marginals -> $\ln(q(s_t))$ for all time steps and factors
     ln_qs = jtu.tree_map( lambda p: jnp.broadcast_to(jnp.zeros_like(p), (T,) + p.shape), prior)
+    # ここでqsを初期化
+    # log marginals -> $\ln(q(s_t))$ for all time steps and factors
+    # 各因子の事前分布を対数空間に変換
+    # 引数はqでpriorが渡される。
+    # jnp.zeros_like(p) priorの形状に合わせて0で初期化
+    #   例えば、priorが3つの因子を持つ場合、各因子の事前分布を0で初期化した配列を作成
+    # jnp.broadcast_to(..., (T,) + p.shape)
+    #   (T,) + p.shape とは「先頭に時系列長Tを追加したshape」という意味
+    #   例：T=5、p.shape=(3,) なら (5, 3) になる
+    # broadcast_to で「全ての時刻に同じゼロベクトル」をコピーする
+    #   → 結果：5×3 の配列、全て0
+    # jax.tree_map は、PyTree（複雑なリスト・タプル・辞書構造など） の中身（leaf）すべてに対して、同じ関数を適用して戻り値も同じ構造で返す関数
+    # priorの中の各要素（leaf）に func(...) を適用し、その結果を同じ構造で返す
+    #
+    # 例
+    # prior = [
+    #     jnp.array([0.3, 0.5, 0.2]),  # 因子0: shape (3,)
+    #     jnp.array([0.6, 0.4])        # 因子1: shape (2,)
+    # ]
+    # T=5なら
+    # ln_qs = [
+    #     jnp.zeros((5, 3)),  # 因子0: shape (T=5, S0=3)
+    #     jnp.zeros((5, 2))   # 因子1: shape (T=5, S1=2)
+    # ]
+    # qs[f]なら因子fの時間ごとの信念分布が得られる。
 
     # log prior -> $\ln(p(s_t))$ for all factors
     ln_prior = jtu.tree_map(log_stable, prior)
 
+    # qsをsoftmaxで正規化
     qs = jtu.tree_map(nn.softmax, ln_qs)
+
 
     def scan_fn(carry, iter):
         qs = carry
@@ -143,6 +180,7 @@ def update_marginals(get_messages, obs, A, B, prior, A_dependencies, B_dependenc
 
         return qs, None
 
+    # forループnum_iter回す
     qs, _ = lax.scan(scan_fn, qs, jnp.arange(num_iter))
 
     return qs
@@ -272,56 +310,166 @@ def run_vmp(A, B, obs, prior, A_dependencies, B_dependencies, num_iter=1, tau=1.
     )
     return qs
 
-def get_mmp_messages(ln_B, B, qs, ln_prior, B_deps):
-    
-    num_factors = len(qs)
-    factors = list(range(num_factors))
+def get_mmp_messages(ln_B,
+                     B, # 遷移行列p(s_{t+1}|s_t, a_t)
+                     qs,#q(s_t) --- 各時刻の隠れ状態の分布1<=t<=T
+                     ln_prior, # ln p(s_0) --- 初期状態の事前分布
+                     B_deps):  # 遷移モデルの依存関係。因子sごとに隠れマルコフモデルを想定して、メッセージパッシングを行うが、依存性のある因子同士は接続しており、メッセージの伝播が起こる。時刻t+1の各因子（子ファクター）に対し、それが依存する時刻tの因子（親ファクター）のインデックスをリストである。
+    """Get messages for marginal message passing (MMP)"""
+    """ 各関数で共有して使われているが引数で渡されている。"""
+
+    num_factors = len(qs) # 各因子の数
+    factors = list(range(num_factors)) # 各因子のインデックス
 
     get_deps_forw = lambda x, f_idx: [x[f][:-1] for f in f_idx]
-    get_deps_back = lambda x, f_idx: [x[f][1:] for f in f_idx]
+    # 前方のqsを取得する関数
+    # x, f_idxが引数
+    # x: 各因子の信念分布qs
+    # f_idx: 依存されている時刻tの因子（親ファクター）インデックス
+    # x[f][:-1]
+    # x[f]: 依存されている因子(親ファクター)fの信念ベクトル（時系列データ）を取り出します。
+    # [:-1]: Pythonのスライス記法で、「最初から、最後の一つ手前まで」を意味します。これにより、信念ベクトルの最後の時間ステップが切り捨てられます。
+    # qs = [
+    #     jnp.zeros((5, 3)),  # 因子0: shape (T=5, S0=3)
+    #     jnp.zeros((5, 2))   # 因子1: shape (T=5, S1=2)
+    # ]
 
-    def forward(b, ln_prior, f):
+    get_deps_back = lambda x, f_idx: [x[f][1:] for f in f_idx]
+    # 後方のqsを取得する関数
+    # x, f_idxが引数
+    # x: 各因子の信念分布qs
+    # f_idx: 依存されている時刻tの因子（親ファクター）インデックス
+    # x[f][1:]
+    # x[f]: 依存されている因子(親ファクター)fの信念ベクトル（時系列データ）を取り出します。
+    # [1:]: Pythonのスライス記法で、「1から最後まで」を意味します。これにより、信念ベクトルの最初の時間ステップが切り捨てられます。
+
+    def forward(b, ln_prior, f): # 前方メッセージを計算
         xs = get_deps_forw(qs, B_deps[f])
+        # qsを取得する。取得するモダリティは B_deps[f] で指定される。
+        # 例えば、B_deps[f] が [0, 1] の場合
+        # qs[0][:-1] と qs[1][:-1] を取得する。
+
         dims = tuple((0, 2 + i) for i in range(len(B_deps[f])))
+        # dimsは、各因子の次元を指定するタプル。len(B_deps[f]) で依存する因子の数がわかり、それが次元数である。。
+
         msg = log_stable(factor_dot_flex(b, xs, dims, keep_dims=(0, 1) ))
+        # b: p(s_{t+1}|s_t, a_t) の遷移行列, xs: q(s_t)因子の信念
+        # dims: 「`xs` のどのベクトルを、`b` のどの軸に当てて縮約するか」の対応（`(0, 2+i)` のペアは“時間軸0と、bの(2+i)番目の因子軸を対応づけて足し込む”という指定）
+        # `keep_dims=(0, 1)`: **時間軸(0) と “次状態”軸(1) だけ残し、他の軸（現状態たち）は総和で消す**指定
+        # msg[t, s_{t+1}] = 
+        # \sum_{依存する各因子のs_t} b[t, s_{t+1}, s_t^{(1)}, s_t^{(2)},\ldots];
+        # \prod_k q^{(k)}[t,\, s_t^{(k)}]
         # append log_prior as a first message 
+
         msg = jnp.concatenate([jnp.expand_dims(ln_prior, 0), msg], axis=0)
+        # jnp.expand_dims(ln_prior, 0)は (1, D) の 2D 配列1 行 D 列の行ベクトル
+        # msgは (T, D) の 2D 配列で、Tは時系列長、Dは因子の次元数
+        #jnp.concatenate([...], axis=0)
+        #axis=0 は「行方向（縦方向）」に配列を繋ぐことを意味します。
+        #[A, B] のようにリストで渡すと、それらの配列を縦に継ぎ足すように結合します。どちらも同じ列数（同じ第二軸のサイズ）でなければなりません。
+        # 元の ln_prior: [a, b, c]（形 (3,)）
+        # msg: 2 × 3 行列
+        # これを実行すると：
+        # [[a, b, c],
+        #  [...元の msg の 1 行目...],
+        #  [...元の msg の 2 行目...]]
+        # ln_priorをメッセージの先頭に入れた。
+
         # mutliply with 1/2 all but the last msg
         T = len(msg)
         if T > 1:
             msg = msg * jnp.pad( 0.5 * jnp.ones(T - 1), (0, 1), constant_values=1.)[:, None]
+        # 0.5 * jnp.ones(T - 1) は (T - 1,) の配列で、各要素が 0.5になる。
+        # jnp.pad(..., (0, 1), constant_values=1.) は、paddingを行う。
+        # 配列の最後に 1 を追加して (T,) の形になる。
+        # 最初の T-1 行は 0.5 倍され、
+        # 最後の行だけはそのまま（1.0 倍）になる。終端だからか？
+        # これにより、msg の形は (T, D) から (T, D) のままとなります。
 
         return msg
-    
-    def backward(Bs, xs):
+
+    def backward(Bs, xs): # 後方メッセージを計算
         msg = 0.
         for i, b in enumerate(Bs):
+            #bは
             b_norm = b / (b.sum(-1, keepdims=True) + 1e-16)
+            #
+            #
             msg += log_stable(vmap(lambda x, y: y @ x)(b_norm, xs[i])) * .5
         
         return jnp.pad(msg, ((0, 1), (0, 0)))
 
     def marg(inv_deps, f):
+        # inv_deps: 逆依存関係リスト。時刻tの因子（親ファクター）に依存されている時刻t+1の因子(小ファクター)のインデックス。
+        # f: 因子インデックス（整数）
         B_marg = []
         for i in inv_deps:
-            b = B[i]
-            keep_dims = (0, 1, 2 + B_deps[i].index(f))
+            b = B[i] # 因子iに関する時間順にスタックされた遷移行列
+            keep_dims = (0, 1, 2 + B_deps[i].index(f)) # B_deps[i].index(f) B_deps[i]の中にあるfの位置（インデックス）
+            # どの次元を残すかを指定
+            # bは時間順にならんだ遷移行列のスタックになっている。
+            # b[i] の軸の並びをイメージ：
+            # 0: T 時間
+            # 1: s_{t+1}^{(f)}
+            # 2: s_{t}^{(i)}
+            # 3: s_{t}^{(i)}
+            # 2 + B_deps[i].index(f): 依存されている各因子の「現在状態」軸（B_deps[i].index(f) は因子fのB_deps[i] 内の位置）
+            # 因子1が1と2に依存する場合、B_deps[1]は[1, 2]となる。
+
             dims = []
             idxs = []
             for j, d in enumerate(B_deps[i]):
+                # iが依存する因子のリストをfor文で回す
+                # j: リスト内のインデックス
+                # d: 時刻tの因子（いわゆる親ノード）
                 if f != d:
-                    dims.append((0, 2 + j))
-                    idxs.append(d)
+                    dims.append((0, 2 + j)) #時間軸、因子軸
+                    idxs.append(d)          #依存する因子
             xs = get_deps_forw(qs, idxs)
+            # qs: q(s_t^1), q(s_t^2),...
+            # idxs: 時刻tの依存する因子のインデックス
+            # xs: 依存する因子の信念分布
             B_marg.append( factor_dot_flex(b, xs, tuple(dims), keep_dims=keep_dims) )
         
         return B_marg
 
     if B is not None:
         inv_B_deps = [[i for i, d in enumerate(B_deps) if f in d] for f in factors]
+        # B_deps = [
+        #   [0],       # 因子0は自分自身にだけ依存
+        #   [0, 1],    # 因子1は因子0と1に依存
+        #   [1, 2]     # 因子2は1と自分自身に依存
+        # ]
+        # enumerateでインデックスと要素を取得
+        # factors 各因子のインデックス
+        # f: 因子のインデックス
+        # i: 依存関係のインデックス s_t^{(i)}
+        # d: iが依存する因子のインデックス s_t^{(k)}
+        # fがdに含まれるならばiを保存
+        # 例えば、f=0のとき、
+        #ループ1回目: dは[0]。 0 in [0] は True。 → iである0を保存。
+        #ループ2回目: dは[0, 1]。 0 in [0, 1] は True。 → iである1を保存。
+        #ループ3回目: dは[1, 2]。 0 in [1, 2] は False。
+        # [0, 1]がリストに追加される。
+        # これにより、時刻tの各因子に依存する時刻t+1の因子のインデックスを取得できる。
+        # -------
+        # forループで元のリストを回す
+        # for <要素> in <元のリスト>:
+        #   if文で条件をチェック
+        #      if <条件式>:        
+        #           条件に合ったら、新しいリストに追加
+        #           new_list.append(<出力したい式>)
+        # new_list = [ <出力したい式> for <要素> in <元のリスト> if <条件式> ]
+
+
         B_marg = jtu.tree_map(lambda f: marg(inv_B_deps[f], f), factors)
-        lnB_future = jtu.tree_map(forward, B, ln_prior, factors) 
-        lnB_past = jtu.tree_map(lambda f: backward(B_marg[f], get_deps_back(qs, inv_B_deps[f])), factors)
+        # B_marg = []
+        # for f in factors:
+        #     result = marg(inv_B_deps[f], f)
+        #     B_marg.append(result)
+
+        lnB_future = jtu.tree_map(forward, B, ln_prior, factors) #forward messages
+        lnB_past = jtu.tree_map(lambda f: backward(B_marg[f], get_deps_back(qs, inv_B_deps[f])), factors) #backward messages
     else: 
         lnB_future = jtu.tree_map(lambda x: jnp.expand_dims(x, 0), ln_prior)
         lnB_past = jtu.tree_map(lambda x: 0., qs)
@@ -329,16 +477,17 @@ def get_mmp_messages(ln_B, B, qs, ln_prior, B_deps):
     return lnB_future, lnB_past
 
 def run_mmp(A, B, obs, prior, A_dependencies, B_dependencies, num_iter=1, tau=1.):
+    "周辺化メッセージパッシング (MMP) の実行"
     qs = update_marginals(
-        get_mmp_messages, 
-        obs, 
-        A, 
-        B, 
-        prior, 
-        A_dependencies, 
-        B_dependencies, 
-        num_iter=num_iter, 
-        tau=tau
+        get_mmp_messages, # メッセージ取得関数を渡す
+        obs, # 観測値
+        A,   # p(s|o) --- 観測モデル
+        B,   # p(s_{t+1}|s_t) --- 遷移モデルではあるが、もとのBことなり、過去の行動に基づき並べられた遷移行列のスタックになっている。
+        prior, #p(s_0) --- 事前分布
+        A_dependencies, # 観測モデルの依存関係。Aは全因子sの次元を持つが、モダリティはすべての因子に依存するわけではない。モダリティと因子の依存性をA_dependenciesで指定する。p(o|s1, s2, ..., sn)と書けるが、実際にはp(o|s1, s2, ..., sn)のうち、s1, s2, ..., snのうち一部の因子に依存する。そこで、A_dependenciesを使って、どの因子がどのモダリティに依存するかを指定する。
+        B_dependencies, # 遷移モデルの依存関係。Bは因子sごとに用意する。sそれぞれが、異なる因子に依存する。すなわち、Bはsごとに異なる大きさの遷移行列を持つ。B_dependenciesは、どの因子がどの因子に依存するかを指定し、これを見ることで、B行列がどの因子に依存するかを知ることができる。
+        num_iter=num_iter, # イテレーション回数
+        tau=tau # ステップサイズ、学習の進む速さ
     )
     return qs
 

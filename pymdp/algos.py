@@ -165,6 +165,7 @@ def update_marginals(get_messages, # メッセージ取得関数
 
 
     def scan_fn(carry, iter):
+        #qsを更新する関数
         qs = carry
 
         ln_qs = jtu.tree_map(log_stable, qs)
@@ -173,6 +174,10 @@ def update_marginals(get_messages, # メッセージ取得関数
         lnB_past, lnB_future = get_messages(ln_B, B, qs, ln_prior, B_dependencies)
 
         mgds = jtu.Partial(mirror_gradient_descent_step, tau)
+        # jtu.Partial
+        # jax.tree_util.Partial は functools.partial に似ています。
+        # 最初の引数（この場合は tau）を固定して、新しい関数を返します。
+        # 返された関数は、残りの引数だけを渡せば呼び出せるようになります。
 
         ln_As = vmap(all_marginal_log_likelihood, in_axes=(0, 0, None))(qs, log_likelihoods, A_dependencies)
 
@@ -182,6 +187,8 @@ def update_marginals(get_messages, # メッセージ取得関数
 
     # forループnum_iter回す
     qs, _ = lax.scan(scan_fn, qs, jnp.arange(num_iter))
+    # scanを複数回呼び出しqsを更新する。
+    # これにより、qsは各イテレーションで更新され、最終的な推論結果が得られる。 
 
     return qs
 

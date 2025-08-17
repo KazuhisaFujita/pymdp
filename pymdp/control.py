@@ -256,7 +256,10 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
         # pa_m: モダリティmのディリクレ分布のパラメータ
         # qo_m: モダリティmの予測観測についての信念
         # m: モダリティのインデックス
+
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)
+        # パラメタが渡される
+
         fd = factor_dot(wa_m, [s for f, s in enumerate(qs) if f in A_dependencies[m]], keep_dims=(0,))[..., None]
         return qo_m.dot(fd)
 

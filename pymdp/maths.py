@@ -225,10 +225,37 @@ def spm_wnorm(A):
     """
     Returns Expectation of logarithm of Dirichlet parameters over a set of
     Categorical distributions, stored in the columns of A.
+    ディリクレ分布のパラメータの対数の期待値を返す。
     """
+    # A: 観測モデルのパラメータ。規格化されていない。
+    #
+    # A.shape == (n_outcomes, S_dep1, S_dep2, ...)
+    # # A の形: (outcomes, S1, S2)
+    # A = np.array([
+    #   # outcome 0
+    #   [[0.2, 0.3],
+    #    [0.1, 0.4]],
+    #   # outcome 1
+    #   [[0.8, 0.7],
+    #    [0.9, 0.6]]
+    # ])   # shape (2, 2, 2)
+    # # A.sum(axis=0) は outcomes 軸を合計 -> shape (2,2)
+    # A.sum(axis=0)
+    # # => array([[1.0, 1.0],
+    # #           [1.0, 1.0]])
+    # # 各 (S1,S2) の組み合わせ（列に相当）について観測確率の総和を得る
+    # print(A)
+
     norm = 1. / A.sum(axis=0)
+    # 1/総和を計算する
+
     avg = 1. / (A + MINVAL)
+    # 1/各値を計算する。MINVALを足してゼロ割りを防ぐ。
+
     wA = norm - avg
+    # wA = 1/総和 - 1/各値
+
+    
     return wA
 
 

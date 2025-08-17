@@ -212,6 +212,7 @@ def compute_free_energy(qs, prior, obs, A):
 def multidimensional_outer(arrs):
     """Compute the outer product of a list of arrays by iteratively expanding the first array and multiplying it with the next array"""
     # 外積を計算するために、最初の配列を繰り返し拡張し、次の配列と乗算する
+    # 簡単なサンプルコードで外積していることを確認。
 
     x = arrs[0]
     for q in arrs[1:]:
@@ -236,8 +237,8 @@ def dirichlet_expected_value(dir_arr):
     Returns Expectation of Dirichlet parameters over a set of
     Categorical distributions, stored in the columns of A.
     """
-    dir_arr = jnp.clip(dir_arr, min=MINVAL)
-    expected_val = jnp.divide(dir_arr, dir_arr.sum(axis=0, keepdims=True))
+    dir_arr = jnp.clip(dir_arr, min=MINVAL) # ディリクレ分布のパラメータをクリップ
+    expected_val = jnp.divide(dir_arr, dir_arr.sum(axis=0, keepdims=True)) # 期待値を計算
     return expected_val
 
 

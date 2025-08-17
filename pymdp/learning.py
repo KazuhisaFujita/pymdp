@@ -62,9 +62,14 @@ def update_obs_likelihood_dirichlet_m(pA_m, obs_m, qs, dependencies_m, lr=1.0):
 
     dfda = vmap(multidimensional_outer)([obs_m] + relevant_factors).sum(axis=0)
     # obs_mは観測のモダリティのone-hotベクトル
+    # multidimensional_outerは多次元外積を計算する関数
+    # [obs_m] + relevant_factorsは観測のモダリティと因子のqsを結合したリスト
+    # vmap(multidimensional_outer) は、
+    # 「各引数の先頭軸 Tをそろえて同時にスライス（t 抜き出し） → 1D ベクトル同士で外積 → T 本分をスタック」
+    # という処理をコンパイラに任せて実現します。結果の形は (T, no_m, ns_1, ns_2, ...)。
 
-    new_pA_m = pA_m + lr * dfda
-    A_m = dirichlet_expected_value(new_pA_m)
+    new_pA_m = pA_m + lr * dfda #パラメタ更新
+    A_m = dirichlet_expected_value(new_pA_m) #期待値を求める
 
     return new_pA_m, A_m
     

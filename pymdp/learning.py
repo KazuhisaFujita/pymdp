@@ -11,19 +11,57 @@ def update_obs_likelihood_dirichlet_m(pA_m, obs_m, qs, dependencies_m, lr=1.0):
     """JAX version of ``pymdp.learning.update_obs_likelihood_dirichlet_m``"""
     # pA_m - parameters of the dirichlet from the prior
     # pA_m.shape = (no_m x num_states[k] x num_states[j] x ... x num_states[n]) where (k, j, n) are indices of the hidden state factors that are parents of modality m
+    # pA_m:  観測モダリティmに対するディリクレ分布のパラメータ
+    # obs_m: 観測モダリティmの観測、o_{m,t} = observation (one-hot vector) of modality m at time t
+    # qs: qs
+    # dependencies_m: 観測モダリティmに関わる因子のリスト
 
+    # 更新式
     # \alpha^{*} = \alpha_{0} + \kappa * \sum_{t=t_begin}^{t=T} o_{m,t} \otimes \mathbf{s}_{f \in parents(m), t}
-
+    #
     # \alpha^{*} is the VFE-minimizing solution for the parameters of q(A)
     # \alpha_{0} are the Dirichlet parameters of p(A)
-    # o_{m,t} = observation (one-hot vector) of modality m at time t
+    # o_{m,t} = observation (one-hot vector) of modality m at time t 観測の時系列
     # \mathbf{s}_{f \in parents(m), t} = categorical parameters of marginal posteriors over hidden state factors that are parents of modality m, at time t
+    # 
+    # 観測ベクトル o = [0, 1, 0]
+    # 周辺事後分布 s^1 = [0.8, 0.2]
+    # 周辺事後分布 s^2 = [0.7, 0.1, 0.2]
+    #
+    # o \otimes s^1
+    #       [0.8, 0.2]  ← 因子1 の周辺事後分布
+    #       -----------
+    # [0]   [0.0, 0.0]
+    # [1]   [0.8, 0.2]  ← 観測あり
+    # [0]   [0.0, 0.0]
+    #
+    # o \otimes s^1 \otimes s^2
+    #          [0.7, 0.1, 0.2]  ← 因子2 の周辺事後分布
+    #          --------------
+    # [0.0]   [0.0, 0.0, 0.0]
+    # [0.0]   [0.0, 0.0, 0.0]  
+    #
+    #          [0.7,  0.1,  0.2]  ← 因子2 の周辺事後分布
+    #          --------------
+    # [0.8]   [0.56, 0.08, 0.16]
+    # [0.2]   [0.14, 0.02, 0.04] 
+    #
+    #          [0.7, 0.1, 0.2]  ← 因子2 の周辺事後分布
+    #          --------------
+    # [0.0]   [0.0, 0.0, 0.0]
+    # [0.0]   [0.0, 0.0, 0.0]  
+    #
+    # \sum_{t=t_begin}^{t=T}は外積の結果の時間について総和を取っている。
+    #
     # \otimes is a multidimensional outer product, not just a outer product of two vectors
     # \kappa is an optional learning rate
 
+
     relevant_factors = tree_map(lambda f_idx: qs[f_idx], dependencies_m)
+    #観測モダリティに関わる因子のqsを抽出
 
     dfda = vmap(multidimensional_outer)([obs_m] + relevant_factors).sum(axis=0)
+    # obs_mは観測のモダリティのone-hotベクトル
 
     new_pA_m = pA_m + lr * dfda
     A_m = dirichlet_expected_value(new_pA_m)
@@ -32,16 +70,35 @@ def update_obs_likelihood_dirichlet_m(pA_m, obs_m, qs, dependencies_m, lr=1.0):
     
 def update_obs_likelihood_dirichlet(pA, A, obs, qs, *, A_dependencies, onehot_obs, num_obs, lr):
     """ JAX version of ``pymdp.learning.update_obs_likelihood_dirichlet`` """
+    # 全モダリティに対して観測尤度 A をディリクレ更新する関数
+    # pA: (観測のモダリティ、それに関わる因子)、Aはp(s^1, s^2,...\mid o)ではあるが、Dirichlet分布を想定しており、パラメタが保存されている。
+    # A: (観測のモダリティ)、A_{m,t} = posterior of modality m at time t
+    # obs: (観測のモダリティ)、o_{m,t} = observation of modality m at time t
+    # qs: (観測のモダリティに関わる因子のqs)
+    # A_dependencies: 観測のモダリティに関わる因子のリスト
+    # onehot_obs: one-hot ベクトルを使用するかどうか。update_Aでone-hotが事前に指定されている。
+    # num_obs: 観測の数
+    # lr: 学習率
 
     obs_m = lambda o, dim: nn.one_hot(o, dim) if not onehot_obs else o
+    # obs_mは観測のモダリティのone-hotベクトル
+
     update_A_fn = lambda pA_m, o_m, dim, dependencies_m: None if pA_m is None else update_obs_likelihood_dirichlet_m(
-        pA_m, obs_m(o_m, dim), qs, dependencies_m, lr=lr
+        pA_m,            #モダリティごとのdirichlet分布のパラメータ
+        obs_m(o_m, dim), # 観測のモダリティのone-hotベクトル
+        qs,              # qs
+        dependencies_m,  # 観測のモダリティに関わる因子のリスト
+        lr=lr            # 学習率
     )
     result = tree_map(update_A_fn, pA, obs, num_obs, A_dependencies, is_leaf=lambda x: x is None)
+    # tree_mapを使用して、各モダリティに対する更新結果を格納する。
+    # この処理が成り立つには、それぞれの引数がモダリティ順に整列されている必要がある。
+    # x==Noneの時、is_leafがTrueになる
+
     qA = []
     E_qA = []
     for i, r in enumerate(result):
-        if r is None:
+        if r is None: # rがNoneの時
             qA.append(r)
             E_qA.append(A[i])
         else:

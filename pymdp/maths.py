@@ -211,6 +211,7 @@ def compute_free_energy(qs, prior, obs, A):
 
 def multidimensional_outer(arrs):
     """Compute the outer product of a list of arrays by iteratively expanding the first array and multiplying it with the next array"""
+    # 外積を計算するために、最初の配列を繰り返し拡張し、次の配列と乗算する
 
     x = arrs[0]
     for q in arrs[1:]:

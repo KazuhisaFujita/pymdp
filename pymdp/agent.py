@@ -323,10 +323,12 @@ class Agent(Module):
         if self.learn_A:
             update_A = partial(
                 learning.update_obs_likelihood_dirichlet,
-                A_dependencies=self.A_dependencies,
-                num_obs=self.num_obs,
+                A_dependencies=self.A_dependencies, # 観測のモダリティに関わる因子のリスト
+                num_obs=self.num_obs, # 観測の数
                 onehot_obs=self.onehot_obs,
             )
+            # partial を使って、Agent の設定が組み込まれた update_A という関数を作成しておく。
+            
             
             lr = jnp.broadcast_to(lr_pA, (self.batch_size,))
             qA, E_qA = vmap(update_A)(

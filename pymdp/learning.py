@@ -16,7 +16,7 @@ def update_obs_likelihood_dirichlet_m(pA_m, obs_m, qs, dependencies_m, lr=1.0):
     # qs: qs
     # dependencies_m: 観測モダリティmに関わる因子のリスト
 
-    # 更新式
+    # 更新式 Simith2022 式37
     # \alpha^{*} = \alpha_{0} + \kappa * \sum_{t=t_begin}^{t=T} o_{m,t} \otimes \mathbf{s}_{f \in parents(m), t}
     #
     # \alpha^{*} is the VFE-minimizing solution for the parameters of q(A)
@@ -98,14 +98,17 @@ def update_obs_likelihood_dirichlet(pA, A, obs, qs, *, A_dependencies, onehot_ob
     result = tree_map(update_A_fn, pA, obs, num_obs, A_dependencies, is_leaf=lambda x: x is None)
     # tree_mapを使用して、各モダリティに対する更新結果を格納する。
     # この処理が成り立つには、それぞれの引数がモダリティ順に整列されている必要がある。
-    # x==Noneの時、is_leafがTrueになる
+    # x==Noneの時、tree_mapのis_leafパラメタがTrueになる。
+    # tree_map関数は、pAやobsのようなリスト構造（専門的にはPytree）の中身を一つずつ順番にチェックしていきます。そのチェックしているまさにその瞬間の要素が、ラムダ式 lambda x: ... の x に代入されます。
+    # Aを更新しないモダリティは、Noneが入っていて、更新計算しない。
+
 
     qA = []
     E_qA = []
-    for i, r in enumerate(result):
-        if r is None: # rがNoneの時
-            qA.append(r)
-            E_qA.append(A[i])
+    for i, r in enumerate(result): #結果をモダリティごと取り出す。
+        if r is None: # rがNoneの時（Aを更新しないモダリティ）
+            qA.append(r) # Noneがそのまま入る。
+            E_qA.append(A[i]) # 更新していない。つまり、パラメタがNoneなら更新しない。
         else:
             qA.append(r[0])
             E_qA.append(r[1])

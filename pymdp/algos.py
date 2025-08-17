@@ -98,8 +98,10 @@ def mirror_gradient_descent_step(tau, ln_A, lnB_past, lnB_future, ln_qs):
     p_k = softmax(u_k)
     """
     err = ln_A - ln_qs + lnB_past + lnB_future
-    ln_qs = ln_qs + tau * err
-    qs = nn.softmax(ln_qs - ln_qs.mean(axis=-1, keepdims=True))
+    # ln_qs:元の値
+    # ln_A + lnB_past + lnB_future: メッセージから計算されたln_qs
+    ln_qs = ln_qs + tau * err # 誤差を足す
+    qs = nn.softmax(ln_qs - ln_qs.mean(axis=-1, keepdims=True)) #確率にする
 
     return qs
 
@@ -180,8 +182,11 @@ def update_marginals(get_messages, # メッセージ取得関数
         # 返された関数は、残りの引数だけを渡せば呼び出せるようになります。
 
         ln_As = vmap(all_marginal_log_likelihood, in_axes=(0, 0, None))(qs, log_likelihoods, A_dependencies)
+        # 観測からのメッセージ
 
         qs = jtu.tree_map(mgds, ln_As, lnB_past, lnB_future, ln_qs)
+        # qsを更新する
+
 
         return qs, None
 
@@ -397,18 +402,39 @@ def get_mmp_messages(ln_B,
         return msg
 
     def backward(Bs, xs): # 後方メッセージを計算
+        # Bs: 遷移行列のスタックではあるが、B_margである。
+        # 例えば、B_margは以下のようなリストになる。
+        # 親因子f、子因子iが1と2に依存している場合、
+        # [
+        #   jnp.zeros((5, 3, 2)),  # 因子0: shape (T=5, S0=3, Sf=2)
+        #   jnp.zeros((5, 2, 2))   # 因子1: shape (T=5, S1=2, Sf=2)
+        # ]
+        # xs: 子因子の信念分布(t=1:T)。0は除外されている。
         msg = 0.
         for i, b in enumerate(Bs):
-            #bは
+            #bは子因子iの時系列で並んだ遷移行列スタック
+            #margeされている。
+            
             b_norm = b / (b.sum(-1, keepdims=True) + 1e-16)
-            #
-            #
+            # 規格化
+            # Bは規格化された遷移行列だが、後ろ向き計算に使うBは転置して、列について規格化したものだから再規格化が必要になる。
+
             msg += log_stable(vmap(lambda x, y: y @ x)(b_norm, xs[i])) * .5
+            # 1/2が掛けられている。なぜか0.5の記述がforwardと異なる。同じにしたほうがよいのでは。
+            # xに遷移行列の規格化された転置行列が入る。
+            # yに因子の信念分布が入る。
+            # vmapで各時間の計算が並列で回る。
+            # y @ x -> B^\dagger qs
+            # 内積の順番を入れ替えることでB^\dagger qsを実現している。
+        
+        # ループで子因子iの遷移行列を順に取り出し、規格化してから、因子の信念分布と掛け算し、めっせーじを計算している。
+        # それらの総和をとり、各時間のメッセージを計算している。
+            
         
         return jnp.pad(msg, ((0, 1), (0, 0)))
 
     def marg(inv_deps, f):
-        # inv_deps: 逆依存関係リスト。時刻tの因子（親ファクター）に依存されている時刻t+1の因子(小ファクター)のリスト。
+        # inv_deps: 逆依存関係リスト。時刻tの因子（親ファクター）に依存されている時刻t+1の隠れ状態(小ファクター)のリスト。
         # f: 親因子インデックス（整数）
         B_marg = []
         for i in inv_deps:
@@ -453,6 +479,15 @@ def get_mmp_messages(ln_B,
             # dims: 親因子の軸（bにおける場所）を指定
             # keep_dims: 時間軸、親因子、子因子fの次元を残す
             # B_margは、周辺化した遷移行列のリストp(s_{i,t+1} | s_{f,t})
+            # 因子は複数の因子に依存している。他の因子を信念を掛け同時確率にし、周辺化して消す。
+            # p(s_{i,t+1} | s_{f,t}, s_{j,t})q(s_{j,t}) -> p(s_{i,t+1}, s_{j,t} | s_{f,t}) -> p(s_{i,t+1} | s_{f,t})
+
+        # 例えば、B_margは以下のようなリストになる。
+        # 親因子f、子因子iが1と2に依存している場合、
+        # [
+        #   jnp.zeros((5, 3, 2)),  # 因子0: shape (T=5, S0=3, Sf=2)
+        #   jnp.zeros((5, 2, 2))   # 因子1: shape (T=5, S1=2, Sf=2)
+        # ]
 
         return B_marg
 
@@ -474,7 +509,7 @@ def get_mmp_messages(ln_B,
         #ループ2回目: dは[0, 1]。 0 in [0, 1] は True。 → iである1を保存。
         #ループ3回目: dは[1, 2]。 0 in [1, 2] は False。
         # [0, 1]がリストに追加される。
-        # これにより、時刻tの各因子に依存する時刻t+1の因子のインデックスを取得できる。
+        # これにより、時刻tの各因子（親ノード）に依存する時刻t+1の因子（子ノード）のインデックスを取得できる。
         # -------
         # forループで元のリストを回す
         # for <要素> in <元のリスト>:
@@ -483,6 +518,9 @@ def get_mmp_messages(ln_B,
         #           条件に合ったら、新しいリストに追加
         #           new_list.append(<出力したい式>)
         # new_list = [ <出力したい式> for <要素> in <元のリスト> if <条件式> ]
+        #
+        # 逆依存関係がなぜ必要か？
+        # 後方メッセージを計算するために、時刻tの因子が,時刻t+1のどの因子に依存しているかを知る必要がある。
 
 
         B_marg = jtu.tree_map(lambda f: marg(inv_B_deps[f], f), factors)
@@ -493,7 +531,16 @@ def get_mmp_messages(ln_B,
         # p(s_{i,t+1} | s_{f,t})
 
         lnB_future = jtu.tree_map(forward, B, ln_prior, factors) #forward messages
+        # B: 観測モデルの遷移行列、各因子ごとの時間順にスタックされた遷移行列
+        # ln_prior: 事前分布の対数確率
+        # factors: 各因子のインデックス
+
         lnB_past = jtu.tree_map(lambda f: backward(B_marg[f], get_deps_back(qs, inv_B_deps[f])), factors) #backward messages
+        # B_marg[f]: 周辺化された遷移行列
+        # get_deps_back(qs, inv_B_deps[f]): 子因子（未来）の信念分布を取得
+        # 各因子について、後方メッセージを計算する。
+
+
     else: 
         lnB_future = jtu.tree_map(lambda x: jnp.expand_dims(x, 0), ln_prior)
         lnB_past = jtu.tree_map(lambda x: 0., qs)

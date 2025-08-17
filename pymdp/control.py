@@ -236,29 +236,35 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
     ----------
     pA: ``numpy.ndarray`` of dtype object
         Dirichlet parameters over observation model (same shape as ``A``)
+        ディリクレ分布のパラメータ
     qo: ``list`` of ``numpy.ndarray`` of dtype object
         Predictive posterior beliefs over observations; stores the beliefs about
         observations expected under the policy at some arbitrary time ``t``
+        方策のもとでの予測観測についての信念の時系列q(o_t \mid \pi)
     qs: ``list`` of ``numpy.ndarray`` of dtype object
         Predictive posterior beliefs over hidden states, stores the beliefs about
         hidden states expected under the policy at some arbitrary time ``t``
+        方策のもとでの各隠れ状態因子の信念の時系列q(s_t \mid \pi)
 
     Returns
     -------
     infogain_pA: float
         Surprise (about Dirichlet parameters) expected for the pair of posterior predictive distributions ``qo`` and ``qs``
-    """
-
-
-
+    """    
 
     def infogain_per_modality(pa_m, qo_m, m):
+        # pa_m: モダリティmのディリクレ分布のパラメータ
+        # qo_m: モダリティmの予測観測についての信念
+        # m: モダリティのインデックス
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)
         fd = factor_dot(wa_m, [s for f, s in enumerate(qs) if f in A_dependencies[m]], keep_dims=(0,))[..., None]
         return qo_m.dot(fd)
 
     pA_infogain_per_modality = jtu.tree_map(
         infogain_per_modality, pA, qo, list(range(len(qo)))
+        #  list(range(len(qo)): oのモダリティーのインデックスのリスト
+        # tree_mapでリスト内の要素が順番に呼ばれる。
+        # そのお陰で、観測モダリティーごとに、pA, qo, mが渡され、それぞれが処理される。
     )
     
     infogain_pA = jtu.tree_reduce(lambda x, y: x + y, pA_infogain_per_modality)

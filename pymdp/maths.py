@@ -255,7 +255,7 @@ def spm_wnorm(A):
     # wA = 1/総和 - 1/各値
 
     # wAとは何だ？
-
+    #
 
     return wA
 

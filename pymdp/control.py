@@ -259,7 +259,10 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
         # qo_m: モダリティmの予測観測についての信念ではある。q(o)
         # m: モダリティのインデックス
         #
-
+        # Novelty
+        # E_{p(o|s)q(s)}[KL[q(A|o, s)||q(A)]]-> AsWs, W=1/総和 - 1/各値
+        # KL[q(A|o, s)||q(A)]==E_{q(A|o, s)}[log q(A|o, s) - log q(A)]
+        # q(a|o,s): a->a+q(s|o)
 
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)
         # パラメタが渡される

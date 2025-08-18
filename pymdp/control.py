@@ -260,22 +260,21 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
         # m: モダリティのインデックス
         #
         # Novelty
-        # E_{p(o|s)q(s)}[KL[q(A|o, s)||q(A)]]-> AsWs, W=1/総和 - 1/各値
-        # KL[q(A|o, s)||q(A)]==E_{q(A|o, s)}[log q(A|o, s) - log q(A)]
-        # q(a|o,s): a->a+q(s|o)
+        # E_{p(o|s)q(s)}[KL[q(A|o, s)||q(A)]]
+        # AsWs, W=1/2(1/各値 - 1/総和)、spm_wnormと値が違う？
 
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)
         # パラメタが渡される
+        # KL[q(A|o, s)||q(A)]の計算
 
         fd = factor_dot(wa_m, [s for f, s in enumerate(qs) if f in A_dependencies[m]], keep_dims=(0,))[..., None]
         # [s for f, s in enumerate(qs) if f in A_dependencies[m]]
         # これは、モダリティmに依存する隠れ状態因子のq(s)のリストを作る。
-        # wa_m:E[log μ]と(\prod_f q_f[s_f])の内積 \sum_s (\prod_f q_f[s_f])  を計算する。
-        # \prod_f q_f[s_f]は同時確率である。
+        # E_{q(s)}[KL[q(A|o, s)||q(A)]]
 
         return qo_m.dot(fd)
         # ここで、観測との内積を計算している。
-        # \sum_k q(o_k) \sum_s q(s) 
+        # E_{p(o|s)q(s)}[KL[q(A|o, s)||q(A)]]
 
 
     pA_infogain_per_modality = jtu.tree_map(
@@ -286,8 +285,7 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
     )
     
     infogain_pA = jtu.tree_reduce(lambda x, y: x + y, pA_infogain_per_modality)
-    # ここでは、情報利得を合計している。
-    # infogain_pA = 
+    # ここでは、各モダリティの情報利得の総和を計算している。
     # Smith 2022のNovelty
  
     return infogain_pA.squeeze(-1)

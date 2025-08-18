@@ -189,12 +189,14 @@ def compute_expected_obs(qs, A, A_dependencies):
     """
     New version of expected observation (computation of Q(o|pi)) that takes into account sparse dependencies between observation
     modalities and hidden state factors
+    q(o) = \sum_s q(s) p(o | s)
     """
         
     def compute_expected_obs_modality(A_m, m):
         deps = A_dependencies[m]
         relevant_factors = [qs[idx] for idx in deps]
         return factor_dot(A_m, relevant_factors, keep_dims=(0,))
+        # q(s) \dot p(o | s) = \sum_s q(s) p(o | s)
 
     return jtu.tree_map(compute_expected_obs_modality, A, list(range(len(A))))
 
@@ -254,23 +256,37 @@ def calc_pA_info_gain(pA, qo, qs, A_dependencies):
 
     def infogain_per_modality(pa_m, qo_m, m):
         # pa_m: モダリティmのディリクレ分布のパラメータ
-        # qo_m: モダリティmの予測観測についての信念
+        # qo_m: モダリティmの予測観測についての信念ではある。q(o)
         # m: モダリティのインデックス
+        #
+
 
         wa_m = spm_wnorm(pa_m) * (pa_m > 0.)
         # パラメタが渡される
 
         fd = factor_dot(wa_m, [s for f, s in enumerate(qs) if f in A_dependencies[m]], keep_dims=(0,))[..., None]
+        # [s for f, s in enumerate(qs) if f in A_dependencies[m]]
+        # これは、モダリティmに依存する隠れ状態因子のq(s)のリストを作る。
+        # wa_m:E[log μ]と(\prod_f q_f[s_f])の内積 \sum_s (\prod_f q_f[s_f])  を計算する。
+        # \prod_f q_f[s_f]は同時確率である。
+
         return qo_m.dot(fd)
+        # ここで、観測との内積を計算している。
+        # \sum_k q(o_k) \sum_s q(s) 
+
 
     pA_infogain_per_modality = jtu.tree_map(
         infogain_per_modality, pA, qo, list(range(len(qo)))
         #  list(range(len(qo)): oのモダリティーのインデックスのリスト
         # tree_mapでリスト内の要素が順番に呼ばれる。
-        # そのお陰で、観測モダリティーごとに、pA, qo, mが渡され、それぞれが処理される。
+        # そのお陰で、観測モダリティーごとに、pA, qo, mが渡され、それぞれが処理され、モダリティごとの情報利得が計算される。
     )
     
     infogain_pA = jtu.tree_reduce(lambda x, y: x + y, pA_infogain_per_modality)
+    # ここでは、情報利得を合計している。
+    # infogain_pA = 
+    # Smith 2022のNovelty
+ 
     return infogain_pA.squeeze(-1)
 
 def calc_pB_info_gain(pB, qs_t, qs_t_minus_1, B_dependencies, u_t_minus_1):

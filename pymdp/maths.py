@@ -225,7 +225,6 @@ def spm_wnorm(A):
     """
     Returns Expectation of logarithm of Dirichlet parameters over a set of
     Categorical distributions, stored in the columns of A.
-    ディリクレ分布のパラメータの対数の期待値を返す。
     """
     # A: 観測モデルのパラメータ。規格化されていない。
     #
@@ -255,7 +254,9 @@ def spm_wnorm(A):
     wA = norm - avg
     # wA = 1/総和 - 1/各値
 
-    
+    # wAとは何だ？
+
+
     return wA
 
 

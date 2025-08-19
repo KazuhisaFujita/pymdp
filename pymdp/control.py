@@ -332,8 +332,10 @@ def compute_G_policy(qs_init, A, B, C, pA, pB, A_dependencies, B_dependencies, p
         info_gain = compute_info_gain(qs_next, qo, A, A_dependencies) if use_states_info_gain else 0.
 
         utility = compute_expected_utility(qo, C, t) if use_utility else 0.
+        # ln Cではないのが不思議
 
         param_info_gain = calc_pA_info_gain(pA, qo, qs_next, A_dependencies) if use_param_info_gain else 0.
+        #novelty E_{q(s)}[KL[q(B|o, s)||q(B)]]
         param_info_gain += calc_pB_info_gain(pB, qs_next, qs, B_dependencies, policy_i[t]) if use_param_info_gain else 0.
 
         neg_G += info_gain + utility + param_info_gain

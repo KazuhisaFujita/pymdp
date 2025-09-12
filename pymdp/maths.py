@@ -13,16 +13,19 @@ from jax.experimental.sparse._base import JAXSparse
 MINVAL = jnp.finfo(float).eps
 
 def stable_xlogx(x):
+    # xlogxを計算する際に、最小値をクリップして安定性を確保
     return xlogy(x, jnp.clip(x, MINVAL))
 
 def stable_entropy(x):
+    # エントロピーを計算
     return - stable_xlogx(x).sum()
 
 def stable_cross_entropy(x, y):
+    # クロスエントロピーを計算
     return - xlogy(x, y).sum()
 
 def log_stable(x):
-    # 対数を計算する際に、最小値をクリップして安定性を確保"""
+    # 対数を計算する際に、最小値をクリップして安定性を確保
     return jnp.log(jnp.clip(x, min=MINVAL))
 
 

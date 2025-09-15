@@ -29,7 +29,7 @@ def log_stable(x):
     return jnp.log(jnp.clip(x, min=MINVAL))
 
 
-@multimethod
+@multimethod #引数で分岐する
 @partial(jit, static_argnames=["keep_dims"])
 def factor_dot(M: ArrayLike, xs: list[ArrayLike], keep_dims: Optional[tuple[int]] = None):
     """Dot product of a multidimensional array with `x`.
@@ -180,15 +180,16 @@ def compute_log_likelihood_per_modality(obs, A, distr_obs=True):
 
 def compute_accuracy(qs, obs, A):
     """Compute the accuracy portion of the variational free energy (expected log likelihood under the variational posterior)"""
+    #  E_{Q(s)}[lnP(o|s)]になっているか？
 
-    log_likelihood = compute_log_likelihood(obs, A)
+    log_likelihood = compute_log_likelihood(obs, A) # lnP(o|s) を計算
 
     x = qs[0]
     for q in qs[1:]:
         x = jnp.expand_dims(x, -1) * q
 
-    joint = log_likelihood * x
-    return joint.sum()
+    joint = log_likelihood * x # q(s) * lnP(o|s)
+    return joint.sum() # E_{Q(s)}[lnP(o|s)]
 
 
 def compute_free_energy(qs, prior, obs, A):
@@ -202,12 +203,12 @@ def compute_free_energy(qs, prior, obs, A):
     """
 
     vfe = 0.0  # initialize variational free energy
-    for q, p in zip(qs, prior):
-        negH_qs = - stable_entropy(q)
-        xH_qp = stable_cross_entropy(q, p)
-        vfe += (negH_qs + xH_qp)
+    for q, p in zip(qs, prior): # 各因子のqsとpriorを取り出す
+        negH_qs = - stable_entropy(q)      # 負のエントロピーの計算
+        xH_qp = stable_cross_entropy(q, p) # クロスエントロピーの計算
+        vfe += (negH_qs + xH_qp)           # 1.と2.を足し合わせる
     
-    vfe -= compute_accuracy(qs, obs, A)
+    vfe -= compute_accuracy(qs, obs, A)    # 3.を引く
 
     return vfe
 

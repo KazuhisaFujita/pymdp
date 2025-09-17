@@ -91,7 +91,7 @@ class Agent(Module):
     action_selection: str = field(static=True)
     # whether to sample from full posterior over policies ("full") or from marginal posterior over actions ("marginal")
     sampling_mode: str = field(static=True)
-    # fpi, vmp, mmp, ovf
+    # fpi (Fixed point iteration), vmp (Variational Message Passing), mmp (Mean-Field Message Passing), ovf
     inference_algo: str = field(static=True)
 
     learn_A: bool = field(static=True)

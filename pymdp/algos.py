@@ -12,8 +12,9 @@ def add(x, y):
     return x + y
 
 def marginal_log_likelihood(qs, log_likelihood, i):
-    #周辺対数尤度と書いてあるので誤解するが、対数尤度の期待値の計算をしている。
+    #対数尤度の期待値の計算をしている。
     # s log A o
+    # E_q(s)[log p(o|s) p(o)] -> E_q(s)[log p(o|s)]
 
     # i番目"以外"のすべての信念分布(q)をリストxsに集める
     xs = [q for j, q in enumerate(qs) if j != i]
@@ -49,6 +50,10 @@ def mll_factors(qs, ll_m, factor_list_m) -> List:
 
 def run_vanilla_fpi(A, obs, prior, num_iter=1, distr_obs=True):
     """ Vanilla fixed point iteration (jaxified) """
+    # A: p(o|s)
+    # obs: p(o)
+    # prior: q(s)
+    # KL[q(s)||p(s|o)]を最小化するようにq(s)を更新する。
 
     nf = len(prior)
     factors = list(range(nf))
@@ -62,18 +67,20 @@ def run_vanilla_fpi(A, obs, prior, num_iter=1, distr_obs=True):
 
     # Step 3: Iterate until convergence
     def scan_fn(carry, t):
-        log_q = carry
-        q = jtu.tree_map(nn.softmax, log_q)
-        mll = jtu.Partial(marginal_log_likelihood, q, ll)
-        marginal_ll = jtu.tree_map(mll, factors)
-        log_q = jtu.tree_map(add, marginal_ll, log_prior)
+        log_q = carry # log q(s)
+        q = jtu.tree_map(nn.softmax, log_q) # 確率に変換 q(s)
+        mll = jtu.Partial(marginal_log_likelihood, q, ll) # 各因子に対する対数期待尤度を計算する関数
+        marginal_ll = jtu.tree_map(mll, factors) # 各因子に対する対数期待尤度を計算
+        log_q = jtu.tree_map(add, marginal_ll, log_prior) # log q_i(s_i) ← log p(s_i) + E_{q_{-i}}[log p(o | s)]
 
         return log_q, None
 
-    res, _ = lax.scan(scan_fn, log_q, jnp.arange(num_iter))
+    res, _ = lax.scan(scan_fn, log_q, jnp.arange(num_iter)) # scanで繰り返し計算.num_iter回す。
 
     # Step 4: Map result to factorised posterior
     qs = jtu.tree_map(nn.softmax, res)
+    # q(s) \propto q(s) exp(E_{q_{-i}}[log p(o | s)])
+
     return qs
 
 def run_factorized_fpi(A, obs, prior, A_dependencies, num_iter=1):

@@ -163,7 +163,6 @@ def compute_log_likelihood_single_modality(o_m, A_m, distr_obs=True):
     # 対数尤度を計算
     # 対数尤度と書いてあるが、期待尤度の対数を計算している
     # log A o
-    # 未来からメッセージの計算で使われる
     return log_stable(get_likelihood_single_modality(o_m, A_m, distr_obs=distr_obs))
 
 
@@ -217,9 +216,11 @@ def compute_free_energy(qs, prior, obs, A):
     """
 
     vfe = 0.0  # initialize variational free energy
+
+    # このループでcomplexityを計算する.DKL[Q(s)||P(s)] = -H[Q(s)] + H_{Q(s)}[P(s)]
     for q, p in zip(qs, prior): # 各因子のqsとpriorを取り出す
-        negH_qs = - stable_entropy(q)      # 負のエントロピーの計算
-        xH_qp = stable_cross_entropy(q, p) # クロスエントロピーの計算
+        negH_qs = - stable_entropy(q)      # 負のエントロピーの計算 -H[Q(s)]
+        xH_qp = stable_cross_entropy(q, p) # クロスエントロピーの計算 H_{Q(s)}[P(s)]
         vfe += (negH_qs + xH_qp)           # 1.と2.を足し合わせる
     
     vfe -= compute_accuracy(qs, obs, A)    # 3.を引く

@@ -155,13 +155,18 @@ def get_likelihood_single_modality(o_m, A_m, distr_obs=True):
 
 def compute_log_likelihood_single_modality(o_m, A_m, distr_obs=True):
     """Compute observation log-likelihood for a single modality"""
+    # 対数尤度を計算
     return log_stable(get_likelihood_single_modality(o_m, A_m, distr_obs=distr_obs))
 
 
 def compute_log_likelihood(obs, A, distr_obs=True):
     """Compute likelihood over hidden states across observations from different modalities"""
+    #対数尤度を計算
     result = tree_util.tree_map(lambda o, a: compute_log_likelihood_single_modality(o, a, distr_obs=distr_obs), obs, A)
-    ll = jnp.sum(jnp.stack(result), 0)
+    # lambda式でcompute_log_likelihood_single_modality(o, a, distr_obs=distr_obs)を関数化
+    # tree_mapで回す
+
+    ll = jnp.sum(jnp.stack(result), 0) # 各モダリティの対数尤度を足し合わせる
 
     return ll
 
@@ -174,13 +179,13 @@ def compute_log_likelihood_per_modality(obs, A, distr_obs=True):
                                 obs, # 各モダリティごとの観測（例: [obs1, obs2, ...]）
                                 A) # 各モダリティごとの観測モデルA（例: [A1, A2, ...]）
 
-
+    # sumを取らずに、各モダリティごとの対数尤度をそのまま返す
     return ll_all #それぞれの $ll_m$ が**「隠れ状態 s の数だけの配列（またはテンソル）」
 
 
 def compute_accuracy(qs, obs, A):
     """Compute the accuracy portion of the variational free energy (expected log likelihood under the variational posterior)"""
-    #  E_{Q(s)}[lnP(o|s)]になっているか？
+    #  E_{Q(s)}[lnP(o|s)]
 
     log_likelihood = compute_log_likelihood(obs, A) # lnP(o|s) を計算
 

@@ -14,7 +14,7 @@ def add(x, y):
 def marginal_log_likelihood(qs, log_likelihood, i):
     #周辺対数尤度と書いてあるので誤解するが、対数尤度の期待値の計算をしている。
     # s log A o
-    
+
     # i番目"以外"のすべての信念分布(q)をリストxsに集める
     xs = [q for j, q in enumerate(qs) if j != i]
 
@@ -36,7 +36,11 @@ def all_marginal_log_likelihood(qs, log_likelihoods, all_factor_lists):
 
 def mll_factors(qs, ll_m, factor_list_m) -> List:
     relevant_factors = [qs[f] for f in factor_list_m]
+    # 指定する因子factor_list_mの信念分布を抽出
+
     marginal_ll_f = jtu.Partial(marginal_log_likelihood, relevant_factors, ll_m)
+
+
     loc_nf = len(factor_list_m)
     loc_factors = list(range(loc_nf))
     return jtu.tree_map(marginal_ll_f, loc_factors)

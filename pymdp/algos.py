@@ -39,11 +39,13 @@ def mll_factors(qs, ll_m, factor_list_m) -> List:
     # 指定する因子factor_list_mの信念分布を抽出
 
     marginal_ll_f = jtu.Partial(marginal_log_likelihood, relevant_factors, ll_m)
-
+    # 各因子に対して対数期待尤度を計算する関数を作成する。引数は因子のインデックスi
 
     loc_nf = len(factor_list_m)
-    loc_factors = list(range(loc_nf))
-    return jtu.tree_map(marginal_ll_f, loc_factors)
+    loc_factors = list(range(loc_nf)) #因子のインデックス
+
+    return jtu.tree_map(marginal_ll_f, loc_factors) #各因子に対して対数期待尤度を計算
+
 
 def run_vanilla_fpi(A, obs, prior, num_iter=1, distr_obs=True):
     """ Vanilla fixed point iteration (jaxified) """

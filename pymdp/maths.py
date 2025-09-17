@@ -141,32 +141,41 @@ def factor_dot_flex(M, xs, dims: List[Tuple[int]], keep_dims: Optional[Tuple[int
 
 def get_likelihood_single_modality(o_m, A_m, distr_obs=True):
     """Return observation likelihood for a single observation modality m"""
+    #期待尤度もしくは尤度を計算
+    # 関数名が紛らわしい
     if distr_obs:
         # 確率分布が与えられた場合、観測o_mに対する尤度を計算。期待尤度
-        # p(o_m|s) = Σ_o p(o_m) × p(o_m|s)
+
         expanded_obs = jnp.expand_dims(o_m, tuple(range(1, A_m.ndim)))
         likelihood = (expanded_obs * A_m).sum(axis=0)
+        # A o
+        # p(o_m|s) = Σ_{o_m} p(o_m|s) p(o_m)
+
     else:
         # 離散観測の場合
         # p(o_m|s) = A_m[o_m]
-        likelihood = A_m[o_m]
+        likelihood = A_m[o_m]        
 
     return likelihood
 
 def compute_log_likelihood_single_modality(o_m, A_m, distr_obs=True):
     """Compute observation log-likelihood for a single modality"""
     # 対数尤度を計算
+    # 対数尤度と書いてあるが、期待尤度の対数を計算している
+    # log A o
+    # 未来からメッセージの計算で使われる
     return log_stable(get_likelihood_single_modality(o_m, A_m, distr_obs=distr_obs))
 
 
 def compute_log_likelihood(obs, A, distr_obs=True):
     """Compute likelihood over hidden states across observations from different modalities"""
-    #対数尤度を計算
+    #対数尤度（対数期待尤度）を計算
+
     result = tree_util.tree_map(lambda o, a: compute_log_likelihood_single_modality(o, a, distr_obs=distr_obs), obs, A)
     # lambda式でcompute_log_likelihood_single_modality(o, a, distr_obs=distr_obs)を関数化
     # tree_mapで回す
 
-    ll = jnp.sum(jnp.stack(result), 0) # 各モダリティの対数尤度を足し合わせる
+    ll = jnp.sum(jnp.stack(result), 0) # 各モダリティの対数期待尤度を足し合わせる
 
     return ll
 

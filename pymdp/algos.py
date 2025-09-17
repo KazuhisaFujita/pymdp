@@ -12,7 +12,12 @@ def add(x, y):
     return x + y
 
 def marginal_log_likelihood(qs, log_likelihood, i):
+    #周辺対数尤度と書いてあるので誤解するが、対数尤度の期待値の計算をしている。
+    # s log A o
+    
+    # i番目"以外"のすべての信念分布(q)をリストxsに集める
     xs = [q for j, q in enumerate(qs) if j != i]
+
     return factor_dot(log_likelihood, xs, keep_dims=(i,))
 
 def all_marginal_log_likelihood(qs, log_likelihoods, all_factor_lists):
@@ -127,10 +132,12 @@ def update_marginals(get_messages, # メッセージ取得関数
     def get_log_likelihood(obs_t, A):
        # # mapping over batch dimension
        # return vmap(compute_log_likelihood_per_modality)(obs_t, A)
+       # 対数期待尤度を計算
        return compute_log_likelihood_per_modality(obs_t, A)
 
     # mapping over time dimension of obs array
     log_likelihoods = vmap(get_log_likelihood, (0, None))(obs, A) # this gives a sequence of log-likelihoods (one for each `t`)
+    # obsの各時間ステップに対してget_log_likelihoodを適用
 
     ln_qs = jtu.tree_map( lambda p: jnp.broadcast_to(jnp.zeros_like(p), (T,) + p.shape), prior)
     # ここでqsを初期化

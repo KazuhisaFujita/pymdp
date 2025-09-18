@@ -221,18 +221,21 @@ def compute_info_gain(qs, qo, A, A_dependencies):
     """
     New version of expected information gain that takes into account sparse dependencies between observation modalities and hidden state factors.
     """
+    # E_{q(o,s)}[log q(s|o) - log q(s)]]
+    # = H[q(o)] - E_{q(s)}[H[p(o|s)]]
 
     def compute_info_gain_for_modality(qo_m, A_m, m):
-        H_qo = stable_entropy(qo_m)
-        H_A_m = - stable_xlogx(A_m).sum(0)
+        H_qo = stable_entropy(qo_m)        # H[q(o)]
+        H_A_m = - stable_xlogx(A_m).sum(0) # H[p(o|s)]
         deps = A_dependencies[m]
-        relevant_factors = [qs[idx] for idx in deps]
+        relevant_factors = [qs[idx] for idx in deps] # q(s)
         qs_H_A_m = factor_dot(H_A_m, relevant_factors)
-        return H_qo - qs_H_A_m
+        return H_qo - qs_H_A_m # information gain for modality m
     
     info_gains_per_modality = jtu.tree_map(compute_info_gain_for_modality, qo, A, list(range(len(A))))
-        
-    return jtu.tree_reduce(lambda x,y: x+y, info_gains_per_modality)
+    # ここで、各モダリティの情報利得を計算している。
+           
+    return jtu.tree_reduce(lambda x,y: x+y, info_gains_per_modality)# 全モダリティの情報利得の総和を計算している。
 
 def compute_expected_utility(qo, C, t=0):
     #なぜlog Cではないのか？

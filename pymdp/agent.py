@@ -232,7 +232,7 @@ class Agent(Module):
                 self.num_controls,
                 self.policy_len,
                 self.control_fac_idx,
-            )
+            ) # ポリシーの行列を生成。
         else:
             self.policies = policies
 
@@ -411,7 +411,7 @@ class Agent(Module):
             B_dependencies=self.B_dependencies,
             num_iter=self.num_iter,
             method=self.inference_algo,
-        )
+        )# ここで推論関数を定義。指定したアルゴリズムで推論する。
         
         output = vmap(infer_states)(
             A,

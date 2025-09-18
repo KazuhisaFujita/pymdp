@@ -105,11 +105,14 @@ def construct_policies(num_states, num_controls = None, policy_len=1, control_fa
     Parameters
     ----------
     num_states: ``list`` of ``int``
-        ``list`` of the dimensionalities of each hidden state factor
+        ``list`` of the dimensionalities of each hidden state 
+        隠れ状態の各因子ごとの次元のリスト        
     num_controls: ``list`` of ``int``, default ``None``
         ``list`` of the dimensionalities of each control state factor. If ``None``, then is automatically computed as the dimensionality of each hidden state factor that is controllable
+        制御状態の数
     policy_len: ``int``, default 1
         temporal depth ("planning horizon") of policies
+        先読みの数
     control_fac_idx: ``list`` of ``int``
         ``list`` of indices of the hidden state factors that are controllable (i.e. those state factors ``i`` where ``num_controls[i] > 1``)
 
@@ -120,8 +123,10 @@ def construct_policies(num_states, num_controls = None, policy_len=1, control_fa
         is ``(num_timesteps, num_factors)`` where ``num_timesteps`` is the temporal
         depth of the policy and ``num_factors`` is the number of control factors.
     """
+    # policy_len先の行動の組み合わせをすべて生成する。
 
-    num_factors = len(num_states)
+    num_factors = len(num_states) # 隠れ状態因子の数
+
     if control_fac_idx is None:
         if num_controls is not None:
             control_fac_idx = [f for f, n_c in enumerate(num_controls) if n_c > 1]
@@ -132,7 +137,19 @@ def construct_policies(num_states, num_controls = None, policy_len=1, control_fa
         num_controls = [num_states[c_idx] if c_idx in control_fac_idx else 1 for c_idx in range(num_factors)]
         
     x = num_controls * policy_len
+    # この掛け算はリストの繰り返しを意味する。
+    # num_controls * policy_lenではなく リストがpolicy_len繰り返される
+    # 例えば、num_controls = [2, 3]でpolicy_len=2なら、x = [2, 3, 2, 3]となる。
     policies = list(itertools.product(*[list(range(i)) for i in x]))
+    # x = [2, 3, 2, 3]なら
+    #[0,1], [0,1,2], [0,1], [0,1,2]の全組み合わせをとる。
+    # [(0,0,0,0),
+    # (0,0,0,1),
+    # (0,0,0,2),
+    # (0,0,1,0),
+    # (0,0,1,1),
+    # (0,0,1,2),
+    # これで全行動の組み合わせが得られる。
     
     for pol_i in range(len(policies)):
         policies[pol_i] = jnp.array(policies[pol_i]).reshape(policy_len, num_factors)
@@ -145,7 +162,7 @@ def update_posterior_policies(policy_matrix, qs_init, A, B, C, E, pA, pB, A_depe
     # factor --> n_levels_factor_f x n_policies
     ## vmap across policies
     compute_G_fixed_states = partial(compute_G_policy, qs_init, A, B, C, pA, pB, A_dependencies, B_dependencies,
-                                     use_utility=use_utility, use_states_info_gain=use_states_info_gain, use_param_info_gain=use_param_info_gain)
+                                     use_utility=use_utility, use_states_info_gain=use_states_info_gain, use_param_info_gain=use_param_info_gain) #期待自由エネルギーの計算関数
 
     # only in the case of policy-dependent qs_inits
     # in_axes_list = (1,) * n_factors
@@ -320,7 +337,8 @@ def calc_pB_info_gain(pB, qs_t, qs_t_minus_1, B_dependencies, u_t_minus_1):
 
 def compute_G_policy(qs_init, A, B, C, pA, pB, A_dependencies, B_dependencies, policy_i, use_utility=True, use_states_info_gain=True, use_param_info_gain=False):
     """ Write a version of compute_G_policy that does the same computations as `compute_G_policy` but using `lax.scan` instead of a for loop. """
-
+    # ある行動列policy_iに対する期待自由エネルギーを計算する。
+    
     def scan_body(carry, t):
 
         qs, neg_G = carry
@@ -344,7 +362,7 @@ def compute_G_policy(qs_init, A, B, C, pA, pB, A_dependencies, B_dependencies, p
 
     qs = qs_init
     neg_G = 0.
-    final_state, _ = lax.scan(scan_body, (qs, neg_G), jnp.arange(policy_i.shape[0]))
+    final_state, _ = lax.scan(scan_body, (qs, neg_G), jnp.arange(policy_i.shape[0]))#scanで行動列について繰り返し計算
     qs_final, neg_G = final_state
     return neg_G
 
@@ -396,7 +414,7 @@ def update_posterior_policies_inductive(policy_matrix, qs_init, A, B, C, E, pA, 
     # all_efe_of_policies = vmap(compute_G_policy, in_axes=(in_axes_list, 0))(qs_init_pi, policy_matrix)
 
     # policies needs to be an NDarray of shape (n_policies, n_timepoints, n_control_factors)
-    neg_efe_all_policies = vmap(compute_G_fixed_states)(policy_matrix)
+    neg_efe_all_policies = vmap(compute_G_fixed_states)(policy_matrix) #各行動列をcompute_G_fixed_statesに渡す
 
     return nn.softmax(gamma * neg_efe_all_policies + log_stable(E)), neg_efe_all_policies
 

@@ -138,7 +138,6 @@ def factor_dot_flex(M, xs, dims: List[Tuple[int]], keep_dims: Optional[Tuple[int
     #   s_t^{(2)}:3
     # \sum_{s^{(1)}_t} p(s_{t+1} | s_t^{(1)}, s_t^{(2)}) q(s^{(1)}_t) = p(s_{t+1} | s_t^{(2)})
 
-
 def get_likelihood_single_modality(o_m, A_m, distr_obs=True):
     """Return observation likelihood for a single observation modality m"""
     #期待尤度もしくは尤度を計算
@@ -300,14 +299,14 @@ def spm_wnorm(A):
     wA = norm - avg
     # wA = 1/総和 - 1/各値
 
-    # wAとは何だ？
+    # wAは何だろう？
     # 𝐾𝐿[𝐷𝑖𝑟(𝝁^((1) )∣𝜶′)||𝐷𝑖𝑟(𝝁^((1) )∣𝜶)] ]の粗い近似だと思う。
     # 𝐸_𝐷𝑖𝑟(𝜇^(s,1)∣𝛼^(𝑠,1) )  [ln⁡〖𝜇_𝑘^(𝑠,1) 〗 ]の𝜓(𝑥) の粗い近似とも一致する。
     # 前者ならNoveltyの計算と合うし、後者ならパラメタの期待値の計算と合う。
     # 𝜓(𝑎) \approx −𝛾−1/𝑥の近似を使うと対数項を無視することになり、
     # 𝜓(𝑎) \approx ln⁡𝑎−1/2𝑎の近似を使うと対数項がきれいに消えるが、wA = 1/2(norm - avg)になって合わない。
     # まいった。
-    # ただ、1/2は定数だからいらないという見方もできる。
+    # Da costaらの論文ではwA = 1/2(norm - avg)が使われているが1/2がない。
 
     return wA
 

@@ -150,6 +150,7 @@ def get_likelihood_single_modality(o_m, A_m, distr_obs=True):
         # A o
         # p(o_m|s) = Σ_{o_m} p(o_m|s) p(o_m)
 
+
     else:
         # 離散観測の場合
         # p(o_m|s) = A_m[o_m]
